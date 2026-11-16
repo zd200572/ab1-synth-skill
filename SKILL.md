@@ -38,8 +38,10 @@ python scripts/make_ab1.py --fasta ref.fasta --fastq reads.fq.gz \
 
 - Chunks are consecutive and non-overlapping by default; `--overlap 50` adds
   an overlap so adjacent reads can be assembled.
-- The last chunk is shorter when the length is not a multiple of the chunk
-  size.
+- Every output read is exactly the chunk size: when the tail is shorter, the
+  last window is shifted back so it overlaps the previous read instead of
+  emitting a short fragment (a reference shorter than the chunk size stays one
+  file).
 - Split reads get the quality taper of a real Sanger read (low at both ends,
   rising towards the middle) and independent random seeds.
 - `--open` opens every part.

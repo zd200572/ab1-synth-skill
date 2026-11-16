@@ -41,12 +41,14 @@ python scripts/make_ab1.py \
 ```bash
 python scripts/make_ab1.py --fasta ref.fasta --fastq reads.fq.gz \
   --chunk-size 800 --out sample.ab1
-# -> sample_part1.ab1 (800 bp), sample_part2.ab1 (remaining bp)
+# -> sample_part1.ab1 (800 bp), sample_part2.ab1 (800 bp, overlaps the tail)
 ```
 
 Chunks are consecutive and non-overlapping; `--overlap 50` adds an overlap.
-Each part is treated as an independent read: quality is tapered at both ends
-and the random seed differs per part.
+Every part is exactly `--chunk-size` long: a short tail is covered by shifting
+the last window back, so it overlaps the previous read. Each part is treated
+as an independent read: quality is tapered at both ends and the random seed
+differs per part.
 
 
 Output is validated by re-reading it with Biopython: base calls must match the

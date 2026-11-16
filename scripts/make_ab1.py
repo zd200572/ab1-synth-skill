@@ -260,6 +260,9 @@ def main(argv=None):
         start = 0
         while start < len(target):
             end = min(start + args.chunk_size, len(target))
+            if end == len(target) and end - start < args.chunk_size:
+                # keep every read at full length: shift the last window back
+                start = max(0, end - args.chunk_size)
             spans.append((start, end))
             if end == len(target):
                 break
