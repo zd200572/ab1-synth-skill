@@ -34,6 +34,7 @@ python scripts/make_ab1.py \
 | `--seed` | random seed for reproducible traces |
 | `--chunk-size` | split the reference into reads of N bp, one `.ab1` per chunk |
 | `--overlap` | overlap between consecutive chunks when splitting |
+| `--both-strands` | write `<out>_F.ab1` and `<out>_R.ab1` (reverse complement) |
 | `--open` | open the result in Chromas on Windows |
 
 ### Split a long sequence into several reads
@@ -49,6 +50,19 @@ Every part is exactly `--chunk-size` long: a short tail is covered by shifting
 the last window back, so it overlaps the previous read. Each part is treated
 as an independent read: quality is tapered at both ends and the random seed
 differs per part.
+
+### Short sequences: forward + reverse
+
+When the reference is shorter than `--chunk-size` (or with `--both-strands`),
+two full-length reads are written instead: `sample_F.ab1` and `sample_R.ab1`
+(reverse complement). Read evidence is mirrored, so the reverse trace carries
+the same variation and quality profile.
+
+```bash
+python scripts/make_ab1.py --fasta asv_rep.fasta --id ASV1 \
+  --fastq trim.L9.fq.gz --chunk-size 800 --out ASV1.ab1
+# -> ASV1_F.ab1, ASV1_R.ab1
+```
 
 
 Output is validated by re-reading it with Biopython: base calls must match the

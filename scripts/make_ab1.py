@@ -26,10 +26,15 @@ except ImportError:  # pragma: no cover
     sys.exit("Biopython is required: pip install biopython")
 
 BASES = "GATC"  # ABIF filter-wheel order used by FWO_1
-COMPLEMENT = {"A": "G", "G": "A", "C": "T", "T": "C"}
+PULLUP = {"A": "G", "G": "A", "C": "T", "T": "C"}  # neighbouring dye channels
+COMPLEMENT = {"A": "T", "T": "A", "C": "G", "G": "C"}
 BASE_SPACING = 12.0
 SPACING_BIAS = {"A": 0.0, "C": -1.1, "G": 1.3, "T": 0.5}
 HEIGHT_BIAS = {"A": 1.02, "C": 0.82, "G": 1.18, "T": 0.94}
+
+
+def revcomp(seq: str) -> str:
+    return "".join(COMPLEMENT[b] for b in reversed(seq))
 
 
 def open_text(path: str):
@@ -106,7 +111,7 @@ def build_trace(target, counts, qsum, seed=20261109, taper=False):
     pos = 26.0
     for i, called in enumerate(target):
         depth = sum(counts[i].values())
-        q = round(qsum[i] / depth) if depth else 18
+        q = round(qsum[i] / depth) if depth >= 5 else 18
         q = max(12, min(55, q))
         if taper:
             # a real read loses quality near both ends
@@ -126,7 +131,7 @@ def build_trace(target, counts, qsum, seed=20261109, taper=False):
     for i, called in enumerate(target):
         depth = sum(counts[i].values())
         c, h, s = centers[i], heights[i], sigmas[i]
-        if depth:
+        if depth >= 5:
             for b in BASES:
                 fraction = counts[i][b] / depth
                 if fraction > 0:
@@ -135,7 +140,7 @@ def build_trace(target, counts, qsum, seed=20261109, taper=False):
         else:
             gaussian(channels[called], c, h, s * 0.92, s * 1.3, length)
         # spectral pull-up between neighbouring dye channels
-        gaussian(channels[COMPLEMENT[called]], c + 0.4,
+        gaussian(channels[PULLUP[called]], c + 0.4,
                  h * rng.uniform(0.02, 0.05), s, s, length)
 
     for b in BASES:
@@ -240,6 +245,8 @@ def main(argv=None):
                         help="split the reference into reads of N bp (e.g. 800); one .ab1 per chunk")
     parser.add_argument("--overlap", type=int, default=0,
                         help="overlap between consecutive chunks when splitting")
+    parser.add_argument("--both-strands", action="store_true",
+                        help="write <out>_F.ab1 and <out>_R.ab1 (reverse complement)")
     args = parser.parse_args(argv)
 
     seq_id, target = load_target(args.fasta, args.seq_id)
@@ -271,29 +278,43 @@ def main(argv=None):
         spans = [(0, len(target))]
 
     base, ext = os.path.splitext(args.out)
-    if len(spans) == 1:
-        outputs = [args.out]
-    else:
-        outputs = [f"{base}_part{i + 1}{ext or '.ab1'}" for i in range(len(spans))]
+    both_strands = args.both_strands or (args.chunk_size > 0 and len(target) < args.chunk_size)
+    if both_strands and len(spans) > 1:
+        raise SystemExit("--both-strands cannot be combined with multi-chunk output")
 
-    for index, ((start, end), out_path) in enumerate(zip(spans, outputs)):
-        chunk_seq = target[start:end]
-        chunk_counts = counts[start:end]
-        chunk_qsum = qsum[start:end]
+    jobs = []
+    if both_strands:
+        if len(target) < args.chunk_size:
+            print(f"Reference ({len(target)} bp) is shorter than --chunk-size; "
+                  "writing forward and reverse-complement reads instead")
+        rev_counts = [
+            Counter({COMPLEMENT[b]: n for b, n in counts[len(target) - 1 - i].items()})
+            for i in range(len(target))
+        ]
+        rev_qsum = list(reversed(qsum))
+        jobs.append((target, counts, qsum, f"{base}_F{ext or '.ab1'}",
+                     f"{args.sample or seq_id}_F", False))
+        jobs.append((revcomp(target), rev_counts, rev_qsum, f"{base}_R{ext or '.ab1'}",
+                     f"{args.sample or seq_id}_R", False))
+    elif len(spans) == 1:
+        jobs.append((target, counts, qsum, args.out, args.sample or seq_id, False))
+    else:
+        for index, (start, end) in enumerate(spans):
+            jobs.append((target[start:end], counts[start:end], qsum[start:end],
+                         f"{base}_part{index + 1}{ext or '.ab1'}",
+                         f"{args.sample or seq_id}_{index + 1}", True))
+
+    for index, (seq, seq_counts, seq_qsum, out_path, sample, taper) in enumerate(jobs):
         traces, ploc, quals, length = build_trace(
-            chunk_seq, chunk_counts, chunk_qsum,
-            seed=args.seed + index, taper=len(spans) > 1)
-        sample = args.sample or seq_id
-        if len(spans) > 1:
-            sample = f"{sample}_{index + 1}"
-        write_abif(out_path, chunk_seq, traces, ploc, quals, sample)
-        validate(out_path, chunk_seq)
+            seq, seq_counts, seq_qsum, seed=args.seed + index, taper=taper)
+        write_abif(out_path, seq, traces, ploc, quals, sample)
+        validate(out_path, seq)
         print(f"Wrote {out_path} ({os.path.getsize(out_path)} bytes, "
-              f"{len(chunk_seq)} bp, {length} trace samples)")
+              f"{len(seq)} bp, {length} trace samples)")
     print("ABIF validation passed")
     if args.open:
-        for out_path in outputs:
-            open_in_chromas(out_path)
+        for job in jobs:
+            open_in_chromas(job[3])
 
 
 if __name__ == "__main__":

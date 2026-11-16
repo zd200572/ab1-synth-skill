@@ -46,6 +46,23 @@ python scripts/make_ab1.py --fasta ref.fasta --fastq reads.fq.gz \
   rising towards the middle) and independent random seeds.
 - `--open` opens every part.
 
+## Short references: forward + reverse reads
+
+A reference shorter than the chunk size cannot be split, so the script writes
+two full-length reads instead — `<out>_F.ab1` and `<out>_R.ab1` (reverse
+complement). This happens automatically with `--chunk-size`, or on demand with
+`--both-strands`:
+
+```bash
+python scripts/make_ab1.py --fasta asv_rep.fasta --id ASV1 \
+  --fastq trim.L9.fq.gz --chunk-size 800 --out ASV1.ab1
+# -> ASV1_F.ab1, ASV1_R.ab1 (both 344 bp)
+```
+
+The reverse read reuses the read evidence: counts are complemented and
+reversed, so variation and quality mirror the forward read.
+
+
 
 ## Pipeline
 
