@@ -32,7 +32,22 @@ python scripts/make_ab1.py \
 | `--out` | output `.ab1` |
 | `--sample` | `SMPL1` sample name |
 | `--seed` | random seed for reproducible traces |
+| `--chunk-size` | split the reference into reads of N bp, one `.ab1` per chunk |
+| `--overlap` | overlap between consecutive chunks when splitting |
 | `--open` | open the result in Chromas on Windows |
+
+### Split a long sequence into several reads
+
+```bash
+python scripts/make_ab1.py --fasta ref.fasta --fastq reads.fq.gz \
+  --chunk-size 800 --out sample.ab1
+# -> sample_part1.ab1 (800 bp), sample_part2.ab1 (remaining bp)
+```
+
+Chunks are consecutive and non-overlapping; `--overlap 50` adds an overlap.
+Each part is treated as an independent read: quality is tapered at both ends
+and the random seed differs per part.
+
 
 Output is validated by re-reading it with Biopython: base calls must match the
 reference and all eight trace channels must have equal length.

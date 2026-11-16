@@ -26,6 +26,25 @@ python scripts/make_ab1.py \
 Optional: `--sample NAME`, `--seed N`, `--kmer 17`, `--open` (launch Chromas
 on Windows), or omit `--fastq` for a reference-only trace.
 
+## Splitting one sequence into several reads
+
+Long references are sequenced as several reads. `--chunk-size` writes one
+`.ab1` per chunk, named `<out>_part1.ab1`, `<out>_part2.ab1`, …:
+
+```bash
+python scripts/make_ab1.py --fasta ref.fasta --fastq reads.fq.gz \
+  --chunk-size 800 --out sample.ab1
+```
+
+- Chunks are consecutive and non-overlapping by default; `--overlap 50` adds
+  an overlap so adjacent reads can be assembled.
+- The last chunk is shorter when the length is not a multiple of the chunk
+  size.
+- Split reads get the quality taper of a real Sanger read (low at both ends,
+  rising towards the middle) and independent random seeds.
+- `--open` opens every part.
+
+
 ## Pipeline
 
 1. `load_target` — pick the FASTA record (`--id`, else first record).

@@ -100,7 +100,7 @@ def gaussian(channel, center, height, sigma_left, sigma_right, length):
         channel[x] += height * math.exp(-0.5 * ((x - center) / sigma) ** 2)
 
 
-def build_trace(target, counts, qsum, seed=20261109):
+def build_trace(target, counts, qsum, seed=20261109, taper=False):
     rng = random.Random(seed)
     centers, heights, sigmas, quals = [], [], [], []
     pos = 26.0
@@ -108,6 +108,10 @@ def build_trace(target, counts, qsum, seed=20261109):
         depth = sum(counts[i].values())
         q = round(qsum[i] / depth) if depth else 18
         q = max(12, min(55, q))
+        if taper:
+            # a real read loses quality near both ends
+            edge = min(i, len(target) - 1 - i, 60)
+            q = min(q, int(11 + edge * 0.62))
         pos += BASE_SPACING + SPACING_BIAS[called] + rng.gauss(0, 1.0)
         height = 620 * HEIGHT_BIAS[called] * (0.62 + q / 55 * 0.55)
         height *= math.exp(rng.gauss(0, 0.16))
@@ -232,6 +236,10 @@ def main(argv=None):
     parser.add_argument("--max-mismatch-rate", type=float, default=0.04,
                         help="maximum mismatch fraction for a read to be used")
     parser.add_argument("--open", action="store_true", help="open the result in Chromas on Windows")
+    parser.add_argument("--chunk-size", type=int, default=0, metavar="N",
+                        help="split the reference into reads of N bp (e.g. 800); one .ab1 per chunk")
+    parser.add_argument("--overlap", type=int, default=0,
+                        help="overlap between consecutive chunks when splitting")
     args = parser.parse_args(argv)
 
     seq_id, target = load_target(args.fasta, args.seq_id)
@@ -244,13 +252,45 @@ def main(argv=None):
         counts, qsum, used = [Counter() for _ in target], [0] * len(target), 0
     print(f"Reference: {seq_id} ({len(target)} bp); reads used: {used}")
 
-    traces, ploc, quals, length = build_trace(target, counts, qsum, seed=args.seed)
-    write_abif(args.out, target, traces, ploc, quals, args.sample or seq_id)
-    validate(args.out, target)
-    print(f"Wrote {args.out} ({os.path.getsize(args.out)} bytes, {length} trace samples)")
+    if args.chunk_size > 0:
+        step = args.chunk_size - args.overlap
+        if step <= 0:
+            raise SystemExit("--overlap must be smaller than --chunk-size")
+        spans = []
+        start = 0
+        while start < len(target):
+            end = min(start + args.chunk_size, len(target))
+            spans.append((start, end))
+            if end == len(target):
+                break
+            start += step
+    else:
+        spans = [(0, len(target))]
+
+    base, ext = os.path.splitext(args.out)
+    if len(spans) == 1:
+        outputs = [args.out]
+    else:
+        outputs = [f"{base}_part{i + 1}{ext or '.ab1'}" for i in range(len(spans))]
+
+    for index, ((start, end), out_path) in enumerate(zip(spans, outputs)):
+        chunk_seq = target[start:end]
+        chunk_counts = counts[start:end]
+        chunk_qsum = qsum[start:end]
+        traces, ploc, quals, length = build_trace(
+            chunk_seq, chunk_counts, chunk_qsum,
+            seed=args.seed + index, taper=len(spans) > 1)
+        sample = args.sample or seq_id
+        if len(spans) > 1:
+            sample = f"{sample}_{index + 1}"
+        write_abif(out_path, chunk_seq, traces, ploc, quals, sample)
+        validate(out_path, chunk_seq)
+        print(f"Wrote {out_path} ({os.path.getsize(out_path)} bytes, "
+              f"{len(chunk_seq)} bp, {length} trace samples)")
     print("ABIF validation passed")
     if args.open:
-        open_in_chromas(args.out)
+        for out_path in outputs:
+            open_in_chromas(out_path)
 
 
 if __name__ == "__main__":
